@@ -16,50 +16,67 @@ using namespace std;
  */
 
 int main() {
-	for (;!cin.eof();) {
+	while (!cin.eof()) {
+		int stdout_fd;
+		char **cmds[1024];
 		string line, word;
 		stringstream ss;
-		char** cmds[64];
 		int pipe_fd[2];
-		FILE* fout;
+		FILE *fpin[1024], *fpout[1024];
+		int p, q;
 
+		/* Prompt */
 		cout << "> ";
 		getline(cin, line);
 		ss << line;
-		int p = 0;
 
+
+		/* Parse command */
+		p = 0;
 		do {
-			cmds[p] = new char*[64];
-			int q = 0;
+			fpin[p] = fpout[p] = nullptr;
+			cmds[p] = new char*[1024];
+			q = 0;
 			while (ss >> word) {
-				if (word == "&" || word == ">" || word == ">>" || word == "|") {
+				if (word == "|") break;
+				if (word == "&") break;
+
+				if (word == ">") {
+					ss >> word;
+					fpout[p] = fopen(word.c_str(), "w");
 					break;
 				}
-				cmds[p][q] = new char[256];
+
+				if (word == ">>") {
+					ss >> word;
+					fpout[p] = fopen(word.c_str(), "a");
+					break;
+				}
+
+				if (word == "<") {
+					ss >> word;
+					fpin[p] = fopen(word.c_str(), "r");
+					break;
+				}
+
+				cmds[p][q] = new char[1024];
 				strcpy(cmds[p][q++], word.c_str());
 			}
-			cmds[p][q] = NULL;
-			p++;
+			cmds[p++][q] = NULL;
 		} while (word == "|");
 		cmds[p] = NULL;
 
-		const char* mode = (word == ">") ? "w" : (word == ">>") ? "a" : nullptr;
-		if (word == ">") {
-			mode = (word == ">") ? "w" : "a";
-		}
-		if (mode != nullptr && !ss.eof()) {
-			ss >> word;
-			fout = fopen(word.c_str(), mode);
-		}
 
+		/* Execute command */
 		pid_t pid = fork();
 
 		if (pid < 0) { /* error occurred */
 			fprintf(stderr, "Fork Failed");
 			exit(-1);
 		} else if (pid == 0) { /* child process */
-			p = 0;
+			stdout_fd = dup(STDOUT_FILENO);
 			int stdin_pipe = 0;
+			p = 0;
 			do {
 				pipe(pipe_fd);
 				pid_t pid2 = fork();
@@ -68,27 +85,30 @@ int main() {
 					fprintf(stderr, "Fork Failed");
 					exit(-1);
 				} else if (pid2 == 0) {
-					dup2(stdin_pipe, STDIN_FILENO);
-					close(pipe_fd[0]);
+					if (fpin[p] != nullptr)
+						dup2(fileno(fpin[p]), STDIN_FILENO);
+					else
+						dup2(stdin_pipe, STDIN_FILENO);
 
-					/* piping, to file, stdout */
-					if (cmds[p+1] != NULL) {
+					if (fpout[p] != nullptr)
+						dup2(fileno(fpout[p]), STDOUT_FILENO);
+					else if (cmds[p+1] != NULL)
 						dup2(pipe_fd[1], STDOUT_FILENO);
-						execvp(cmds[p][0], cmds[p]);
-					} else if (fout != nullptr && fout != NULL) {
-						dup2(fileno(fout), STDOUT_FILENO);
-						execvp(cmds[0][0], cmds[0]);
-					} else {
-						execvp(cmds[p][0], cmds[p]);
-					}
-					cout << flush;
+					else
+						dup2(stdout_fd, STDOUT_FILENO);
+
+					execvp(cmds[p][0], cmds[p]);
+					close(pipe_fd[1]);
+					if (fpin[p] != nullptr) fclose(fpin[p]);
+					if (fpout[p] != nullptr) fclose(fpout[p]);
+					exit(0);
 				} else {
 					wait(NULL);
 					close(pipe_fd[1]);
 					stdin_pipe = pipe_fd[0];
-					p++;
 				}
-			} while (cmds[p] != NULL);
+			} while (cmds[++p] != NULL);
+			dup2(stdout_fd, STDOUT_FILENO);
 		} else {
 			if (word != "&") {
 				wait(NULL);
