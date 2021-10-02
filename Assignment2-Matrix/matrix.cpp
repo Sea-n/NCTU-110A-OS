@@ -71,12 +71,15 @@ unsigned paral(int N, int K) {
 					for (int k=0; k<N; k++)
 						C[i*800 + j] += A[i][k] * A[k][j];
 
+			shmdt(C);
 			_exit(0);
 		}
 	}
 
 	for (int k=0; k<K; k++)
 		wait(NULL);
+
+	shmctl(shmid, IPC_RMID, NULL);
 
 	for (int i=0; i<N; i++)
 		for (int j=0; j<N; j++)
