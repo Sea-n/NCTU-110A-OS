@@ -22,7 +22,7 @@ unsigned A[800][800];
 int main() {
 	timeval beg, end;
 	unsigned chk;
-	float ms;
+	float sec;
 	int N;
 
 	cout << "Input the matrix dimension: ";
@@ -39,8 +39,8 @@ int main() {
 		chk = paral(N, K);
 
 		gettimeofday(&end, 0);
-		ms = (end.tv_sec - beg.tv_sec) * 1000 + (end.tv_usec - beg.tv_usec) / 1000.;
-		printf("Elapsed time: %.3lf ms, Checksum: %u\n", ms, chk);
+		sec = (end.tv_sec - beg.tv_sec) + (end.tv_usec - beg.tv_usec) / 1e6;
+		printf("Elapsed time: %.6lf sec, Checksum: %u\n", sec, chk);
 	}
 }
 
