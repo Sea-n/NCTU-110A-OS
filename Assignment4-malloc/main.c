@@ -27,8 +27,8 @@ int main() {
 		not_eof = read_line(fd, line);
 
 		if ( sscanf(line, "A\t%d\t%d", &id, &size) ) {
-			ptr[id] = malloc(size);
-			for (int i = 0; i < size; ++i) {
+			ptr[id] = malloc(size/2);
+			for (int i = 0; i < size/2; ++i) {
 				ptr[id][i] = rand();
 			}
 		}
