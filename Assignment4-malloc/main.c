@@ -21,22 +21,20 @@ int main() {
 	char *ptr[1000] = { NULL };
 	int fd = open("test.txt", O_RDONLY, 0777);
 	char line[128];
-	int id, size, not_eof;
+	int id, size;
 
-	do {
-		not_eof = read_line(fd, line);
-
-		if ( sscanf(line, "A\t%d\t%d", &id, &size) ) {
-			ptr[id] = malloc(size/2);
-			for (int i = 0; i < size/2; ++i) {
+	while (read_line(fd, line)) {
+		if (sscanf(line, "A\t%d\t%d", &id, &size) == 2) {
+			ptr[id] = malloc(size);
+			for (int i = 0; i < size; ++i) {
 				ptr[id][i] = rand();
 			}
-		}
-		else if ( sscanf(line, "D\t%d", &id) ) {
+		} else if (sscanf(line, "D\t%d", &id) == 1) {
 			free(ptr[id]);
+		} else  {
+			write(0, "Failed.\n", 8);
 		}
-
-	} while (not_eof);
+	}
 
 	malloc(0);
 	return 0;

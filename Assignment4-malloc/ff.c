@@ -1,7 +1,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <stdio.h>
-#define POOL_SIZE 120000
+#define POOL_SIZE 20000
 
 /*
  * Student ID: 0816146
