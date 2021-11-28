@@ -28,20 +28,19 @@ int main(int argc, char** argv) {
 	timeval beg, end;
 	double R, sec;
 
-	if (argc != 2) {
+	if (argc < 2) {
 		cerr << "Usage: " << argv[0] << " trace.txt\n";
 		return -1;
 	}
 
 	FILE *trace;
-	trace = fopen(argv[1], "r");
 
 	/* LFU */
 	puts("LFU policy:");
 	gettimeofday(&beg, 0);
 	puts("Frame\tHit\t\tMiss\t\tPage fault ratio");
 	for (F=64; F<=512; F<<=1) {
-		fseek(trace, 0, SEEK_SET);
+		trace = fopen(argv[1], "r");
 		map<int, int> LFU;  // page addr => freq
 		H = 0; M = 0; f = 0;
 
@@ -63,7 +62,7 @@ int main(int argc, char** argv) {
 				auto it = LFU.begin();
 				auto rm = it;
 				while (++it != LFU.end()) {
-					if (it->S > 0 && it->S < rm->S)
+					if (it->S < rm->S)
 						rm = it;
 					else if (it->S == rm->S && it->F < rm->F)
 						rm = it;
@@ -78,15 +77,17 @@ int main(int argc, char** argv) {
 			/* Add to cache */
 			if (argc > 2)
 				printf("ADD-CACHE\taddr=%d\n", addr);
-			f++;
 			LFU[addr] = 1;
+			f++;
 		}
 
+		fclose(trace);
 		R = M * 1.0 / (H+M);
 		printf("%d\t%d\t\t%d\t\t%.10f\n", F, H, M, R);
 	}
 	gettimeofday(&end, 0);
 	sec = (end.tv_sec - beg.tv_sec) + (end.tv_usec - beg.tv_usec) / 1e6;
+	if (argc == 2)
 	printf("Total elapsed tme %.4f sec\n\n", sec);
 
 
@@ -99,7 +100,7 @@ int main(int argc, char** argv) {
 		Node *HEAD = nullptr;
 		Node *TAIL = nullptr;
 		map<int, Node*> LRU;
-		fseek(trace, 0, SEEK_SET);
+		trace = fopen(argv[1], "r");
 		H = 0; M = 0; f = 0;
 
 		while (fscanf(trace, "%d", &addr) == 1) {
@@ -148,11 +149,13 @@ int main(int argc, char** argv) {
 				TAIL = HEAD;
 		}
 
+		fclose(trace);
 		R = M * 1.0 / (H+M);
 		printf("%d\t%d\t\t%d\t\t%.10f\n", F, H, M, R);
 	}
 	gettimeofday(&end, 0);
 	sec = (end.tv_sec - beg.tv_sec) + (end.tv_usec - beg.tv_usec) / 1e6;
+	if (argc == 2)
 	printf("Total elapsed tme %.4f sec\n\n", sec);
 
 	return 0;
