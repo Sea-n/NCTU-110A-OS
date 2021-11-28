@@ -19,28 +19,31 @@ struct Node {
 	Node* nxt;
 };
 
+char fbuf[1002003];
 int main(int argc, char** argv) {
-	timeval beg, end;
-	ifstream trace;
-	float R, sec;
 	int F, f, H, M, addr;
+	timeval beg, end;
+	float R, sec;
 
 	if (argc != 2) {
 		cerr << "Usage: " << argv[0] << " trace.txt\n";
 		return -1;
 	}
 
+	FILE *trace;
+	trace = fopen(argv[1], "r");
+
 	/* LFU */
 	puts("LFU policy:");
 	gettimeofday(&beg, 0);
 	puts("Frame\tHit\t\tMiss\t\tPage fault ratio");
 	for (F=64; F<=512; F<<=1) {
+		fseek(trace, 0, SEEK_SET);
 		map<int, int> FREQ;  // page addr => freq
 		map<pair<int, int>, bool> LFU;  // (freq, page addr) => true
-		trace.open(argv[1]);
 		H = 0; M = 0; f = 0;
 
-		while (trace >> addr) {
+		while (fscanf(trace, "%d", &addr) == 1) {
 			/* Check if addr in cache */
 			auto it = FREQ.find(addr);
 			if (it != FREQ.end()) {
@@ -70,8 +73,7 @@ int main(int argc, char** argv) {
 			LFU[{1, addr}] = 1;
 		}
 
-		trace.close();
-		R = M * 1.0 / (H+M);
+		R = ((float) M) / ((float) (H+M));
 		printf("%d\t%d\t\t%d\t\t%.10f\n", F, H, M, R);
 	}
 	gettimeofday(&end, 0);
@@ -84,14 +86,13 @@ int main(int argc, char** argv) {
 	gettimeofday(&beg, 0);
 	puts("Frame\tHit\t\tMiss\t\tPage fault ratio");
 	for (F=64; F<=512; F<<=1) {
-		trace.open(argv[1]);
+		fseek(trace, 0, SEEK_SET);
 		H = 0; M = 0;
 
-		while (trace >> addr) {
+		while (fscanf(trace, "%d", &addr) == 1) {
 			H++;
 		}
 
-		trace.close();
 		R = M * 1.0 / (H+M);
 		printf("%d\t%d\t\t%d\t\t%.10f\n", F, H, M, R);
 	}
