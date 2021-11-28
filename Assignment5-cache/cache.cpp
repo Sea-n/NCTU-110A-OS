@@ -2,6 +2,8 @@
 #include <iostream>
 #include <fstream>
 #include <map>
+#define F first
+#define S second
 
 using namespace std;
 
@@ -16,14 +18,15 @@ using namespace std;
 
 struct Node {
 	int addr;
-	Node* nxt;
+	Node* prev;
+	Node* next;
 };
 
 char fbuf[1002003];
 int main(int argc, char** argv) {
 	int F, f, H, M, addr;
 	timeval beg, end;
-	float R, sec;
+	double R, sec;
 
 	if (argc != 2) {
 		cerr << "Usage: " << argv[0] << " trace.txt\n";
@@ -39,18 +42,16 @@ int main(int argc, char** argv) {
 	puts("Frame\tHit\t\tMiss\t\tPage fault ratio");
 	for (F=64; F<=512; F<<=1) {
 		fseek(trace, 0, SEEK_SET);
-		map<int, int> FREQ;  // page addr => freq
-		map<pair<int, int>, bool> LFU;  // (freq, page addr) => true
+		map<int, int> LFU;  // page addr => freq
 		H = 0; M = 0; f = 0;
 
 		while (fscanf(trace, "%d", &addr) == 1) {
 			/* Check if addr in cache */
-			auto it = FREQ.find(addr);
-			if (it != FREQ.end()) {
-//				printf("IN-CACHE\taddr=%d,\tfreq=%d->%d\n", addr, it->first, it->second);
-				LFU.erase({FREQ[addr], addr});
-				FREQ[addr]++;
-				LFU[{FREQ[addr], addr}] = 1;
+			auto it = LFU.find(addr);
+			if (it != LFU.end()) {
+				if (argc > 2)
+					printf("IN-CACHE\taddr=%d,\tfreq=%d\n", addr, LFU[addr]);
+				LFU[addr]++;
 				H++;
 				continue;
 			}
@@ -58,22 +59,30 @@ int main(int argc, char** argv) {
 			M++;
 
 			/* Remove LFU */
-			if (f == F) {
-				auto it = LFU.upper_bound({0, 0});
-//				printf("ERASE\t\tfreq=%d,\taddr=%d\n", it->first.first, it->first.second);
-				FREQ.erase(it->first.second);
-				LFU.erase(it);
+			while (f >= F) {
+				auto it = LFU.begin();
+				auto rm = it;
+				while (++it != LFU.end()) {
+					if (it->S > 0 && it->S < rm->S)
+						rm = it;
+					else if (it->S == rm->S && it->F < rm->F)
+						rm = it;
+				}
+
+				if (argc > 2)
+					printf("RM-CACHE\taddr=%d,\tfreq=%d->%d\n", addr, rm->S, rm->F);
+				LFU.erase(rm);
 				f--;
 			}
 
 			/* Add to cache */
-//			printf("ADD-CACHE\taddr=%d\n", addr);
+			if (argc > 2)
+				printf("ADD-CACHE\taddr=%d\n", addr);
 			f++;
-			FREQ[addr] = 1;
-			LFU[{1, addr}] = 1;
+			LFU[addr] = 1;
 		}
 
-		R = ((float) M) / ((float) (H+M));
+		R = M * 1.0 / (H+M);
 		printf("%d\t%d\t\t%d\t\t%.10f\n", F, H, M, R);
 	}
 	gettimeofday(&end, 0);
@@ -85,12 +94,58 @@ int main(int argc, char** argv) {
 	puts("LRU policy:");
 	gettimeofday(&beg, 0);
 	puts("Frame\tHit\t\tMiss\t\tPage fault ratio");
+
 	for (F=64; F<=512; F<<=1) {
+		Node *HEAD = nullptr;
+		Node *TAIL = nullptr;
+		map<int, Node*> LRU;
 		fseek(trace, 0, SEEK_SET);
-		H = 0; M = 0;
+		H = 0; M = 0; f = 0;
 
 		while (fscanf(trace, "%d", &addr) == 1) {
-			H++;
+			auto it = LRU.find(addr);
+			if (it != LRU.end()) {
+				H++;
+				if (HEAD == it->S)
+					continue;
+
+				it->S->prev->next = it->S->next;
+
+				if (TAIL == it->S) {
+					TAIL = TAIL->prev;
+					TAIL->next = nullptr;
+				} else
+					it->S->next->prev = it->S->prev;
+
+				it->S->next = HEAD;
+				it->S->prev = nullptr;
+				HEAD->prev = it->S;
+				HEAD = it->S;
+
+				continue;
+			}
+
+			M++;
+
+			while (f >= F) {
+				LRU.erase(TAIL->addr);
+				TAIL = TAIL->prev;
+				TAIL->next = nullptr;
+				f--;
+			}
+
+			Node *n = new Node;
+			n->addr = addr;
+			n->prev = nullptr;
+			n->next = HEAD;
+			if (HEAD)
+				HEAD->prev = n;
+			HEAD = n;
+			LRU[addr] = n;
+			f++;
+
+			if (f == 1)
+				TAIL = HEAD;
 		}
 
 		R = M * 1.0 / (H+M);
