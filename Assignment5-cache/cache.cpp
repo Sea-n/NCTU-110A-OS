@@ -1,9 +1,13 @@
 #include <sys/time.h>
+#include <algorithm>
 #include <iostream>
 #include <fstream>
+#include <vector>
 #include <map>
 #define F first
 #define S second
+#define SZ 1069
+#define hash(x) (x % SZ)
 
 using namespace std;
 
@@ -22,7 +26,6 @@ struct Node {
 	Node* next;
 };
 
-char fbuf[1002003];
 int main(int argc, char** argv) {
 	int F, f, H, M, addr;
 	timeval beg, end;
@@ -41,44 +44,59 @@ int main(int argc, char** argv) {
 	puts("Frame\tHit\t\tMiss\t\tPage fault ratio");
 	for (F=64; F<=512; F<<=1) {
 		trace = fopen(argv[1], "r");
-		map<int, int> LFU;  // page addr => freq
+		vector<pair<int, int>> LFU[SZ]; // LFU[hash][] = (addr, cache)
+		int FREQ[512] = {0}; // cache -> freq
+		int C2A[F]; // cache -> addr
 		H = 0; M = 0; f = 0;
 
 		while (fscanf(trace, "%d", &addr) == 1) {
 			/* Check if addr in cache */
-			auto it = LFU.find(addr);
-			if (it != LFU.end()) {
-				if (argc > 2)
-					printf("IN-CACHE\taddr=%d,\tfreq=%d\n", addr, LFU[addr]);
-				LFU[addr]++;
-				H++;
-				continue;
+			bool flag = false;
+			for (auto &p : LFU[hash(addr)]) {
+				if (p.F == addr) {
+					if (argc > 2)
+						printf("IN-CACHE\taddr=%d,\tfreq=%d\n", addr, FREQ[p.S]);
+					FREQ[p.S]++;
+					H++;
+					flag = true;
+					break;
+				}
 			}
+			if (flag)
+				continue;
 
 			M++;
 
-			/* Remove LFU */
-			while (f >= F) {
-				auto it = LFU.begin();
-				auto rm = it;
-				while (++it != LFU.end()) {
-					if (it->S < rm->S)
-						rm = it;
-					else if (it->S == rm->S && it->F < rm->F)
-						rm = it;
-				}
+			/* Add to cache */
+			if (f < F) {
+				LFU[hash(addr)].push_back({addr, f});
+				FREQ[f] = 1;
+				C2A[f++] = addr;
 
 				if (argc > 2)
-					printf("RM-CACHE\taddr=%d,\tfreq=%d->%d\n", addr, rm->S, rm->F);
-				LFU.erase(rm);
-				f--;
+					printf("ADD-CACHE\taddr=%d\n", addr);
+				continue;
 			}
 
-			/* Add to cache */
+			/* Remove LFU */
+			int mn = 0;
+			for (int i=1; i<F; i++) {
+				if (FREQ[mn] > FREQ[i])
+					mn = i;
+				else if (FREQ[mn] == FREQ[i])
+					if (C2A[mn] > C2A[i])
+						mn = i;
+			}
+
+			auto v = &LFU[hash(C2A[mn])];
+			v->erase(remove(v->begin(), v->end(), make_pair(C2A[mn], mn)));
+
 			if (argc > 2)
-				printf("ADD-CACHE\taddr=%d\n", addr);
-			LFU[addr] = 1;
-			f++;
+				printf("RM-CACHE\taddr=%d,\tfreq=%d->%d\n", addr, C2A[mn], FREQ[mn]);
+
+			LFU[hash(addr)].push_back({addr, mn});
+			FREQ[mn] = 1;
+			C2A[mn] = addr;
 		}
 
 		fclose(trace);
@@ -156,7 +174,7 @@ int main(int argc, char** argv) {
 	gettimeofday(&end, 0);
 	sec = (end.tv_sec - beg.tv_sec) + (end.tv_usec - beg.tv_usec) / 1e6;
 	if (argc == 2)
-	printf("Total elapsed tme %.4f sec\n\n", sec);
+	printf("Total elapsed tme %.4f sec\n", sec);
 
 	return 0;
 }

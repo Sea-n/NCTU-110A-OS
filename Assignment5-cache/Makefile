@@ -1,2 +1,2 @@
 all:
-	g++ -std=c++14 -Wall -Wextra -o cache cache.cpp
+	g++ -std=c++20 -Wall -Wextra -o cache cache.cpp
