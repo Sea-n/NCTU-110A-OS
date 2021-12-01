@@ -6,7 +6,8 @@
 #include <map>
 #define F first
 #define S second
-#define ALL(v) v->begin(), v->end()
+#define ALL(v) v.begin(), v.end()
+#define RM(vec, val) vec.erase(remove(ALL(vec), val))
 #define SZ 1069
 #define hash(x) (x % SZ)
 
@@ -23,37 +24,37 @@ using namespace std;
 
 struct Node {
 	int addr;
-	Node* prev;
-	Node* next;
+	Node *prev, *next;
 };
 
 int main(int argc, char** argv) {
 	int F, f, H, M, addr;
 	timeval beg, end;
-	double R, sec;
+	FILE *trace;
+	double sec;
 
 	if (argc < 2) {
 		cerr << "Usage: " << argv[0] << " trace.txt\n";
 		return -1;
 	}
 
-	FILE *trace;
 
 	/* LFU */
 	puts("LFU policy:");
 	gettimeofday(&beg, 0);
 	puts("Frame\tHit\t\tMiss\t\tPage fault ratio");
+
 	for (F=64; F<=512; F<<=1) {
-		trace = fopen(argv[1], "r");
 		vector<pair<int, int>> LFU[SZ]; // LFU[hash][] = (addr, cache)
 		int FREQ[512] = {0}; // cache -> freq
 		int C2A[F]; // cache -> addr
+		trace = fopen(argv[1], "r");
 		H = 0; M = 0; f = 0;
 
 		while (fscanf(trace, "%d", &addr) == 1) {
 			/* Check if addr in cache */
 			bool flag = false;
-			for (auto &p : LFU[hash(addr)]) {
+			for (auto &p : LFU[hash(addr)])
 				if (p.F == addr) {
 					if (argc > 2)
 						printf("IN-CACHE\taddr=%d,\tfreq=%d\n", addr, FREQ[p.S]);
@@ -62,13 +63,11 @@ int main(int argc, char** argv) {
 					flag = true;
 					break;
 				}
-			}
-			if (flag)
-				continue;
+			if (flag) continue;
 
 			M++;
 
-			/* Add to cache */
+			/* Add to cache if there are free slot */
 			if (f < F) {
 				LFU[hash(addr)].push_back({addr, f});
 				FREQ[f] = 1;
@@ -79,21 +78,15 @@ int main(int argc, char** argv) {
 				continue;
 			}
 
-			/* Remove LFU */
+			/* Remove LFU and replace with addr */
 			int mn = 0;
-			for (int i=1; i<F; i++) {
-				if (FREQ[mn] > FREQ[i])
+			for (int i=1; i<F; i++)
+				if (FREQ[mn] > FREQ[i] || (FREQ[mn] == FREQ[i] && C2A[mn] > C2A[i]))
 					mn = i;
-				else if (FREQ[mn] == FREQ[i])
-					if (C2A[mn] > C2A[i])
-						mn = i;
-			}
 
-			auto v = &LFU[hash(C2A[mn])];
-			v->erase(remove(ALL(v), make_pair(C2A[mn], mn)));
+			RM(LFU[hash(C2A[mn])], make_pair(C2A[mn], mn));
 
-			if (argc > 2)
-				printf("RM-CACHE\taddr=%d,\tfreq=%d->%d\n", addr, C2A[mn], FREQ[mn]);
+			if (argc > 2) printf("RM-CACHE\taddr=%d,\tfreq=%d->%d\n", addr, C2A[mn], FREQ[mn]);
 
 			LFU[hash(addr)].push_back({addr, mn});
 			FREQ[mn] = 1;
@@ -101,8 +94,7 @@ int main(int argc, char** argv) {
 		}
 
 		fclose(trace);
-		R = M * 1.0 / (H+M);
-		printf("%d\t%d\t\t%d\t\t%.10f\n", F, H, M, R);
+		printf("%d\t%d\t\t%d\t\t%.10f\n", F, H, M, M*1./(H+M));
 	}
 	gettimeofday(&end, 0);
 	sec = (end.tv_sec - beg.tv_sec) + (end.tv_usec - beg.tv_usec) / 1e6;
@@ -116,13 +108,13 @@ int main(int argc, char** argv) {
 	puts("Frame\tHit\t\tMiss\t\tPage fault ratio");
 
 	for (F=64; F<=512; F<<=1) {
-		Node *HEAD = nullptr;
-		Node *TAIL = nullptr;
 		vector<pair<int, Node*>> LRU[SZ]; // LRU[hash][] = (addr, node)
+		Node *HEAD = nullptr, *TAIL = nullptr;
 		trace = fopen(argv[1], "r");
 		H = 0; M = 0; f = 0;
 
 		while (fscanf(trace, "%d", &addr) == 1) {
+			/* Check if addr in cache */
 			Node *cur = nullptr;
 			for (auto &p : LRU[hash(addr)])
 				if (p.F == addr)
@@ -150,32 +142,29 @@ int main(int argc, char** argv) {
 
 			M++;
 
+			/* Remove LRU if cache is full */
 			while (f >= F) {
-				auto v = &LRU[hash(TAIL->addr)];
-				v->erase(remove(ALL(v), make_pair(TAIL->addr, TAIL)));
+				RM(LRU[hash(TAIL->addr)], make_pair(TAIL->addr, TAIL));
 
 				TAIL = TAIL->prev;
 				TAIL->next = nullptr;
 				f--;
 			}
 
+			/* Add to cache */
 			Node *n = new Node;
 			n->addr = addr;
 			n->prev = nullptr;
 			n->next = HEAD;
-			if (HEAD)
-				HEAD->prev = n;
+			if (HEAD) HEAD->prev = n;
 			HEAD = n;
+			if (f == 0) TAIL = HEAD;
 			LRU[hash(addr)].push_back({addr, n});
 			f++;
-
-			if (f == 1)
-				TAIL = HEAD;
 		}
 
 		fclose(trace);
-		R = M * 1.0 / (H+M);
-		printf("%d\t%d\t\t%d\t\t%.10f\n", F, H, M, R);
+		printf("%d\t%d\t\t%d\t\t%.10f\n", F, H, M, M*1./(H+M));
 	}
 	gettimeofday(&end, 0);
 	sec = (end.tv_sec - beg.tv_sec) + (end.tv_usec - beg.tv_usec) / 1e6;
