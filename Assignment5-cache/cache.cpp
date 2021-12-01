@@ -22,9 +22,13 @@ using namespace std;
  * to a public server, such as a public GitHub repository or a public web page.
  */
 
-struct Node {
+struct LFU_Node {
+	int freq, seq, addr;
+};
+
+struct LRU_Node {
 	int addr;
-	Node *prev, *next;
+	LRU_Node *prev, *next;
 };
 
 int main(int argc, char** argv) {
@@ -45,20 +49,19 @@ int main(int argc, char** argv) {
 	puts("Frame\tHit\t\tMiss\t\tPage fault ratio");
 
 	for (F=64; F<=512; F<<=1) {
-		vector<pair<int, int>> LFU[SZ]; // LFU[hash][] = (addr, cache)
-		int FREQ[512] = {0}; // cache -> freq
-		int C2A[F]; // cache -> addr
+		vector<pair<int, int>> LUT[SZ];  // LUT[hash][] = (addr, pos)
+		LFU_Node LFU[512];  // LFU[pos] -> (freq, seq, addr)
 		trace = fopen(argv[1], "r");
 		H = 0; M = 0; f = 0;
+		int seq = 0;
 
-		while (fscanf(trace, "%d", &addr) == 1) {
+		while (fscanf(trace, "%d", &addr) == 1 && ++seq) {
 			/* Check if addr in cache */
 			bool flag = false;
-			for (auto &p : LFU[hash(addr)])
+			for (auto &p : LUT[hash(addr)])
 				if (p.F == addr) {
-					if (argc > 2)
-						printf("IN-CACHE\taddr=%d,\tfreq=%d\n", addr, FREQ[p.S]);
-					FREQ[p.S]++;
+					LFU[p.S].freq++;
+					LFU[p.S].seq = seq;
 					H++;
 					flag = true;
 					break;
@@ -69,28 +72,21 @@ int main(int argc, char** argv) {
 
 			/* Add to cache if there are free slot */
 			if (f < F) {
-				LFU[hash(addr)].push_back({addr, f});
-				FREQ[f] = 1;
-				C2A[f++] = addr;
-
-				if (argc > 2)
-					printf("ADD-CACHE\taddr=%d\n", addr);
+				LUT[hash(addr)].push_back({addr, f});
+				LFU[f++] = {1, seq, addr};
 				continue;
 			}
 
 			/* Remove LFU and replace with addr */
 			int mn = 0;
 			for (int i=1; i<F; i++)
-				if (FREQ[mn] > FREQ[i] || (FREQ[mn] == FREQ[i] && C2A[mn] > C2A[i]))
+				if (LFU[mn].freq > LFU[i].freq || (LFU[mn].freq == LFU[i].freq && LFU[mn].seq > LFU[i].seq))
 					mn = i;
 
-			RM(LFU[hash(C2A[mn])], make_pair(C2A[mn], mn));
+			RM(LUT[hash(LFU[mn].addr)], make_pair(LFU[mn].addr, mn));
 
-			if (argc > 2) printf("RM-CACHE\taddr=%d,\tfreq=%d->%d\n", addr, C2A[mn], FREQ[mn]);
-
-			LFU[hash(addr)].push_back({addr, mn});
-			FREQ[mn] = 1;
-			C2A[mn] = addr;
+			LUT[hash(addr)].push_back({addr, mn});
+			LFU[mn] = {1, seq, addr};
 		}
 
 		fclose(trace);
@@ -98,7 +94,6 @@ int main(int argc, char** argv) {
 	}
 	gettimeofday(&end, 0);
 	sec = (end.tv_sec - beg.tv_sec) + (end.tv_usec - beg.tv_usec) / 1e6;
-	if (argc == 2)
 	printf("Total elapsed tme %.4f sec\n\n", sec);
 
 
@@ -108,14 +103,14 @@ int main(int argc, char** argv) {
 	puts("Frame\tHit\t\tMiss\t\tPage fault ratio");
 
 	for (F=64; F<=512; F<<=1) {
-		vector<pair<int, Node*>> LRU[SZ]; // LRU[hash][] = (addr, node)
-		Node *HEAD = nullptr, *TAIL = nullptr;
+		vector<pair<int, LRU_Node*>> LRU[SZ]; // LRU[hash][] = (addr, node)
+		LRU_Node *HEAD = nullptr, *TAIL = nullptr, *cur;
 		trace = fopen(argv[1], "r");
 		H = 0; M = 0; f = 0;
 
 		while (fscanf(trace, "%d", &addr) == 1) {
 			/* Check if addr in cache */
-			Node *cur = nullptr;
+			cur = nullptr;
 			for (auto &p : LRU[hash(addr)])
 				if (p.F == addr)
 					cur = p.S;
@@ -152,14 +147,14 @@ int main(int argc, char** argv) {
 			}
 
 			/* Add to cache */
-			Node *n = new Node;
-			n->addr = addr;
-			n->prev = nullptr;
-			n->next = HEAD;
-			if (HEAD) HEAD->prev = n;
-			HEAD = n;
+			cur = new LRU_Node;
+			cur->addr = addr;
+			cur->prev = nullptr;
+			cur->next = HEAD;
+			if (HEAD) HEAD->prev = cur;
+			HEAD = cur;
 			if (f == 0) TAIL = HEAD;
-			LRU[hash(addr)].push_back({addr, n});
+			LRU[hash(addr)].push_back({addr, cur});
 			f++;
 		}
 
@@ -168,7 +163,6 @@ int main(int argc, char** argv) {
 	}
 	gettimeofday(&end, 0);
 	sec = (end.tv_sec - beg.tv_sec) + (end.tv_usec - beg.tv_usec) / 1e6;
-	if (argc == 2)
 	printf("Total elapsed tme %.4f sec\n", sec);
 
 	return 0;
