@@ -6,6 +6,7 @@
 #include <map>
 #define F first
 #define S second
+#define ALL(v) v->begin(), v->end()
 #define SZ 1069
 #define hash(x) (x % SZ)
 
@@ -89,7 +90,7 @@ int main(int argc, char** argv) {
 			}
 
 			auto v = &LFU[hash(C2A[mn])];
-			v->erase(remove(v->begin(), v->end(), make_pair(C2A[mn], mn)));
+			v->erase(remove(ALL(v), make_pair(C2A[mn], mn)));
 
 			if (argc > 2)
 				printf("RM-CACHE\taddr=%d,\tfreq=%d->%d\n", addr, C2A[mn], FREQ[mn]);
@@ -117,29 +118,32 @@ int main(int argc, char** argv) {
 	for (F=64; F<=512; F<<=1) {
 		Node *HEAD = nullptr;
 		Node *TAIL = nullptr;
-		map<int, Node*> LRU;
+		vector<pair<int, Node*>> LRU[SZ]; // LRU[hash][] = (addr, node)
 		trace = fopen(argv[1], "r");
 		H = 0; M = 0; f = 0;
 
 		while (fscanf(trace, "%d", &addr) == 1) {
-			auto it = LRU.find(addr);
-			if (it != LRU.end()) {
+			Node *cur = nullptr;
+			for (auto &p : LRU[hash(addr)])
+				if (p.F == addr)
+					cur = p.S;
+			if (cur != nullptr) {
 				H++;
-				if (HEAD == it->S)
+				if (HEAD == cur)
 					continue;
 
-				it->S->prev->next = it->S->next;
+				cur->prev->next = cur->next;
 
-				if (TAIL == it->S) {
+				if (TAIL == cur) {
 					TAIL = TAIL->prev;
 					TAIL->next = nullptr;
 				} else
-					it->S->next->prev = it->S->prev;
+					cur->next->prev = cur->prev;
 
-				it->S->next = HEAD;
-				it->S->prev = nullptr;
-				HEAD->prev = it->S;
-				HEAD = it->S;
+				cur->next = HEAD;
+				cur->prev = nullptr;
+				HEAD->prev = cur;
+				HEAD = cur;
 
 				continue;
 			}
@@ -147,7 +151,9 @@ int main(int argc, char** argv) {
 			M++;
 
 			while (f >= F) {
-				LRU.erase(TAIL->addr);
+				auto v = &LRU[hash(TAIL->addr)];
+				v->erase(remove(ALL(v), make_pair(TAIL->addr, TAIL)));
+
 				TAIL = TAIL->prev;
 				TAIL->next = nullptr;
 				f--;
@@ -160,7 +166,7 @@ int main(int argc, char** argv) {
 			if (HEAD)
 				HEAD->prev = n;
 			HEAD = n;
-			LRU[addr] = n;
+			LRU[hash(addr)].push_back({addr, n});
 			f++;
 
 			if (f == 1)
