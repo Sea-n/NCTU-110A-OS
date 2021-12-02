@@ -1,14 +1,12 @@
 #include <sys/time.h>
 #include <algorithm>
 #include <iostream>
-#include <fstream>
 #include <vector>
-#include <map>
+#define SZ 1069
 #define F first
 #define S second
 #define ALL(v) v.begin(), v.end()
 #define RM(vec, val) vec.erase(remove(ALL(vec), val))
-#define SZ 1069
 #define hash(x) (x % SZ)
 
 using namespace std;
@@ -56,7 +54,7 @@ int main(int argc, char** argv) {
 		int seq = 0;
 
 		while (fscanf(trace, "%d", &addr) == 1 && ++seq) {
-			/* Check if addr in cache */
+			/* Check if page in memory */
 			bool flag = false;
 			for (auto &p : LUT[hash(addr)])
 				if (p.F == addr) {
@@ -70,7 +68,7 @@ int main(int argc, char** argv) {
 
 			M++;
 
-			/* Add to cache if there are free slot */
+			/* Add to memory if there are free slot */
 			if (f < F) {
 				LUT[hash(addr)].push_back({addr, f});
 				LFU[f++] = {1, seq, addr};
@@ -109,7 +107,7 @@ int main(int argc, char** argv) {
 		H = 0; M = 0; f = 0;
 
 		while (fscanf(trace, "%d", &addr) == 1) {
-			/* Check if addr in cache */
+			/* Check if page in memory */
 			cur = nullptr;
 			for (auto &p : LRU[hash(addr)])
 				if (p.F == addr)
@@ -137,7 +135,7 @@ int main(int argc, char** argv) {
 
 			M++;
 
-			/* Remove LRU if cache is full */
+			/* Remove LRU if memory is full */
 			while (f >= F) {
 				RM(LRU[hash(TAIL->addr)], make_pair(TAIL->addr, TAIL));
 
@@ -146,7 +144,7 @@ int main(int argc, char** argv) {
 				f--;
 			}
 
-			/* Add to cache */
+			/* Add page to memory */
 			cur = new LRU_Node;
 			cur->addr = addr;
 			cur->prev = nullptr;
