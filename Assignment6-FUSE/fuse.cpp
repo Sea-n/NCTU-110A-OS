@@ -24,12 +24,33 @@ int my_getattr(const char *path, struct stat *st);
 static struct fuse_operations op;
 
 struct Attr {
-	string path;
-	bool is_dir;
-	int mode, size;
 	int uid, gid;
+	string path;
+	size_t size;
+	bool is_dir;
 	int mtime;
+	int mode;
 	int pos;
+};
+
+struct tar_header {
+	char name[100];
+	char mode[8];
+	char uid[8];
+	char gid[8];
+	char size[12];
+	char mtime[12];
+	char checksum[8];
+	char typeflag[1];
+	char linkname[100];
+	char magic[6];
+	char version[2];
+	char uname[32];
+	char gname[32];
+	char devmajor[8];
+	char devminor[8];
+	char prefix[155];
+	char pad[12];
 };
 
 /* Open file in global scope :) */
@@ -48,39 +69,27 @@ int main(int argc, char** argv) {
 
 	/* Read tar to my own structure */
 	while (true) {
-		char name[100], mode[8], uid[8], gid[8], size[12], mtime[12];
-		char type[1], uname[32], gname[32];
+		tar_header *hdr;
 		Attr *a = new Attr;
 
-		tar.read(name, 100);
-		tar.read(mode, 8);
-		tar.read(uid, 8);
-		tar.read(gid, 8);
-		tar.read(size, 12);
-		tar.read(mtime, 12);
-		tar.seekg(8, ios::cur);
-		tar.read(type, 1);
-		tar.seekg(108, ios::cur);
-		tar.read(uname, 32);
-		tar.read(gname, 32);
-		tar.seekg(183, ios::cur);
+		tar.read((char *) hdr, 512);
 
-		if (name[0] == '\0')
+		if (hdr->name[0] == '\0')
 			break;
 
-		size[11] = mtime[11] = '\0';
+		hdr->size[11] = hdr->mtime[11] = '\0';
 
-		printf("tar: name=%s, mode=%s, uid=%s, gid=%s.\n", name, mode, uid, gid);
-		printf("tar: size=%s, mtime=%s, uname=%s, gname=%s.\n", size, mtime, uname, gname);
+		// printf("tar: name=%s, mode=%s, uid=%s, gid=%s.\n", name, mode, uid, gid);
+		// printf("tar: size=%s, mtime=%s, uname=%s, gname=%s.\n", size, mtime, uname, gname);
 
-		a->mtime = stoi(mtime, 0, 8);
-		a->mode = stoi(mode, 0, 8);
-		a->size = stoi(size, 0, 8);
-		a->uid = stoi(uid, 0, 8);
-		a->gid = stoi(gid, 0, 8);
+		a->mtime = stoi(hdr->mtime, 0, 8);
+		a->mode = stoi(hdr->mode, 0, 8);
+		a->size = stoi(hdr->size, 0, 8);
+		a->uid = stoi(hdr->uid, 0, 8);
+		a->gid = stoi(hdr->gid, 0, 8);
 		a->pos = tar.tellg();
-		a->is_dir = type[0] == '5';
-		a->path = ROOT + name;
+		a->is_dir = hdr->typeflag[0] == '5';
+		a->path = ROOT + hdr->name;
 		if (a->path.back() == '/') a->path.pop_back();  // remove trailing-slash for directory
 
 		tar.seekg((a->size + 511) & ~511, ios::cur);
@@ -133,7 +142,7 @@ int main(int argc, char** argv) {
 	{
 		Attr *a = new Attr;
 		a->mtime = 0;
-		a->mode = 0777;
+		a->mode = 0775;
 		a->size = 0;
 		a->uid = 0;
 		a->gid = 0;
@@ -159,7 +168,6 @@ int my_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, off_t off
 
 	if (path[1] == '\0') {  // Only root have trailing-slash
 		for (auto name : dir[hasher(ROOT)]) {
-			printf("XXX %s\n", name.c_str());
 			filler(buffer, name.c_str(), NULL, 0);
 		}
 		return 0;
@@ -183,21 +191,39 @@ int my_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, off_t off
 int my_read(const char *path, char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
 	printf("my_read: path=%s, buff=%p, size=%ld, offset=%ld\n", path, buffer, size, offset);
 
-	return 0;
+	auto it = attr.find(hasher(path));
+	if (it == attr.end())
+		return -2;
+	Attr *a = attr[hasher(path)];
+
+	size_t sz = size;
+	if ((size_t) offset > a->size)
+		sz = 0;
+	else if (size + offset > a->size)
+		sz = a->size - offset;
+
+	if (sz) {
+		tar.seekg(a->pos + offset);
+		tar.read(buffer, sz);
+	}
+
+	printf("my_read: sz=%ld\n", sz);
+
+	return sz;
 }
 
 int my_getattr(const char *path, struct stat *st) {
-	if (path[1] == '\0') {  // Only for root
-		st->st_mode = S_IFDIR;
-		return 0;
-	}
-
 	printf("my_getattr: path=%s, stat=%p\n", path, st);
 	auto it = attr.find(hasher(path));
 	if (it == attr.end())
-		return 1;
+		return -2;
+	Attr *a = attr[hasher(path)];
 
-	st->st_mode = attr[hasher(path)]->is_dir ? S_IFDIR : S_IFREG;
+	st->st_mode = (a->is_dir ? S_IFDIR : S_IFREG) | a->mode;
+	st->st_uid = a->uid;
+	st->st_gid = a->gid;
+	st->st_size = a->size;
+	st->st_mtime = a->mtime;
 
 	return 0;
 }
