@@ -69,7 +69,7 @@ int main(int argc, char** argv) {
 
 	/* Read tar to my own structure */
 	while (true) {
-		tar_header *hdr;
+		tar_header *hdr = new tar_header;
 		Attr *a = new Attr;
 
 		tar.read((char *) hdr, 512);
@@ -79,31 +79,25 @@ int main(int argc, char** argv) {
 
 		hdr->size[11] = hdr->mtime[11] = '\0';
 
-		// printf("tar: name=%s, mode=%s, uid=%s, gid=%s.\n", name, mode, uid, gid);
-		// printf("tar: size=%s, mtime=%s, uname=%s, gname=%s.\n", size, mtime, uname, gname);
-
 		a->mtime = stoi(hdr->mtime, 0, 8);
-		a->mode = stoi(hdr->mode, 0, 8);
+		a->mode = stoi(hdr->mode, 0, 8) | (hdr->typeflag[0] == '5' ? S_IFDIR : S_IFREG);
 		a->size = stoi(hdr->size, 0, 8);
 		a->uid = stoi(hdr->uid, 0, 8);
 		a->gid = stoi(hdr->gid, 0, 8);
-		a->pos = tar.tellg();
-		a->is_dir = hdr->typeflag[0] == '5';
 		a->path = ROOT + hdr->name;
+		a->pos = tar.tellg();
 		if (a->path.back() == '/') a->path.pop_back();  // remove trailing-slash for directory
 
 		tar.seekg((a->size + 511) & ~511, ios::cur);
 
+		/* Find repeated name, keep newer one */
 		auto it = attr.find(hasher(a->path));
 		if (it != attr.end()) {
 			if (it->second->mtime > a->mtime)
-				continue;
+				continue;  // Existing one is newer, not updating
 		}
 
-		printf("hash(%s) = %ld\n", a->path.c_str(), hasher(a->path));
 		attr[hasher(a->path)] = a;
-
-		puts("\n");
 	}
 
 	/* directory listing */
@@ -114,45 +108,14 @@ int main(int argc, char** argv) {
 		dir[hasher(par)].push_back(sub);
 	}
 
-	/* Debug */
-	puts("\nattr:");
-	for (auto &it : attr) {
-		printf("  path=%s, hash=%ld\n", it.second->path.c_str(), it.first);
-	}
-
-	for (auto it : dir) {
-		auto i = attr.find(it.first);
-		if (i == attr.end())
-			printf("dir %ld:\n", it.first);
-		else
-			printf("dir %ld\t%s:\n", it.first, attr[it.first]->path.c_str());
-
-		for (auto n : it.second)
-			printf("  %s\n", n.c_str());
-	}
-
-	printf("hash: '', %ld\n", hasher(string(""))); printf("hash: '/', %ld\n", hasher(string("/")));
-	printf("hash: '//', %ld\n", hasher(string("//")));
-	printf("hash: dir, %ld\n", hasher(string("dir")));
-	printf("hash: dir/, %ld\n", hasher(string("dir/")));
-	printf("hash: /dir, %ld\n", hasher(string("/dir")));
-	printf("hash: /dir/, %ld\n", hasher(string("/dir/")));
-
-	/* Root */
+	/* tar file doesn't contain root node */
 	{
 		Attr *a = new Attr;
-		a->mtime = 0;
-		a->mode = 0775;
-		a->size = 0;
-		a->uid = 0;
-		a->gid = 0;
-		a->pos = 0;
-		a->is_dir = true;
+		a->mode = 0775 | S_IFDIR;
 		a->path = ROOT;
 
 		attr[hasher(ROOT)] = a;
 	}
-
 
 	/* Connect FUSE API */
 	memset(&op, 0, sizeof(op));
@@ -164,18 +127,14 @@ int main(int argc, char** argv) {
 }
 
 int my_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi) {
-	(void) offset; (void) fi;
+	(void) offset; (void) fi;  // Unused
 
 	if (path[1] == '\0') {  // Only root have trailing-slash
-		for (auto name : dir[hasher(ROOT)]) {
+		for (auto name : dir[hasher(ROOT)])
 			filler(buffer, name.c_str(), NULL, 0);
-		}
 		return 0;
 	}
 
-	printf("my_readdir: path=%s, offset=%ld\n", path, offset);
-
-	printf("my_readdir: hash=%ld\n", hasher(path + ROOT));
 	auto it = dir.find(hasher(path + ROOT));
 	if (it == dir.end()) {
 		printf("my_readdir: directory '%s' (%ld) not found.\n", path,  hasher(path + ROOT));
@@ -189,37 +148,31 @@ int my_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, off_t off
 }
 
 int my_read(const char *path, char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
-	printf("my_read: path=%s, buff=%p, size=%ld, offset=%ld\n", path, buffer, size, offset);
-
 	auto it = attr.find(hasher(path));
 	if (it == attr.end())
-		return -2;
+		return -2;  // No such file
 	Attr *a = attr[hasher(path)];
 
+	if (offset < 0 || (size_t) offset >= a->size)
+		return 0;
+
 	size_t sz = size;
-	if ((size_t) offset > a->size)
-		sz = 0;
-	else if (size + offset > a->size)
+	if (sz > a->size - offset)
 		sz = a->size - offset;
 
-	if (sz) {
-		tar.seekg(a->pos + offset);
-		tar.read(buffer, sz);
-	}
-
-	printf("my_read: sz=%ld\n", sz);
+	tar.seekg(a->pos + offset);
+	tar.read(buffer, sz);
 
 	return sz;
 }
 
 int my_getattr(const char *path, struct stat *st) {
-	printf("my_getattr: path=%s, stat=%p\n", path, st);
 	auto it = attr.find(hasher(path));
 	if (it == attr.end())
-		return -2;
+		return -2;  // No such file
 	Attr *a = attr[hasher(path)];
 
-	st->st_mode = (a->is_dir ? S_IFDIR : S_IFREG) | a->mode;
+	st->st_mode = a->mode;
 	st->st_uid = a->uid;
 	st->st_gid = a->gid;
 	st->st_size = a->size;
