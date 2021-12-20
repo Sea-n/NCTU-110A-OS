@@ -34,7 +34,8 @@ for i in {1..4}; do
 	echo "${BLUE}===== basic case $i =====${NC}"
 
 	bash "./${TESTCASE_DIR}/$i.txt" 2>&1 \
-		| sed -e "s/$USER/nctuos/g" -e "s#$WD#/home/nctuos/Documents#" \
+		| sed -e "s/ $USER / nctuos /g" \
+		| sed -e "s#$WD#/home/nctuos/Documents#" \
 		> "${OUTPUT_DIR}/${i}.txt"
 
 	diff -w "${OUTPUT_DIR}/${i}.txt" "${ANSWER_DIR}/${i}.txt" > /dev/null
@@ -62,7 +63,7 @@ for i in {5..6}; do
 	echo "${PURPLE}===== bonus case $i =====${NC}"
 
 	bash "./$TESTCASE_DIR/$i.txt" 2>&1 \
-		| sed "s/$USER/nctuos/g" \
+		| sed -e "s/ $USER / nctuos /g" \
 		> "$OUTPUT_DIR/$i.txt"
 
 	diff -w "$OUTPUT_DIR/$i.txt" "$ANSWER_DIR/$i.txt" > /dev/null
